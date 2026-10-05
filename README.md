@@ -1,5 +1,3 @@
-# Volt-Official-Computer-Language
-
 VOLT ".vt1"
 
 Finalized Mature Industrial Language Specification
