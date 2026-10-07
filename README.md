@@ -24,6 +24,10 @@ And it is built so that high-level abstractions disappear during compilation whe
 
 Volt's mature native toolchain is completely independent.
 
+Its frontend is also independent: the custom Volt Frontend Runtime implements lexing and parsing directly, while EBNF + CFG together serve as the authoritative grammar oracle and conformance baseline.
+
+Canonical source normalization expands every tab to exactly five spaces before indentation is interpreted.
+
 LLVM is not part of the canonical architecture.
 
 The fundamental Volt model is:
@@ -32,7 +36,15 @@ Human intent
       ↓
 Compact .vt1 expression
       ↓
-Deterministic Volt syntax
+Canonical source normalization
+      ↓
+Custom Volt Frontend Runtime
+      ↓
+EBNF + CFG oracle validation
+      ↓
+Concrete Syntax Graph
+      ↓
+Volt Semantic Resolution
       ↓
 Volt Semantic Lattice
       ↓
@@ -181,10 +193,14 @@ The mature architecture is:
 .vt1 Source
      │
      ▼
-ANTLR Lexer
+Volt Frontend Runtime
      │
-     ▼
-ANTLR Parser
+     ├── Volt Lexer
+     ├── indentation normalizer
+     ├── EBNF oracle
+     ├── CFG oracle
+     ├── deterministic parser
+     └── syntax validation
      │
      ▼
 Concrete Syntax Graph
@@ -262,6 +278,8 @@ There is no required external compiler backend.
 
 Volt and AIR together own the compilation chain from ".vt1" semantics to executable bytes.
 
+The frontend is equally self-owned. The Volt Frontend Runtime contains the production lexer, indentation normalizer, parser, syntax diagnostics and grammar-conformance machinery. Its parser implementation is governed by the authoritative EBNF + CFG oracle and requires no custom Volt Frontend Runtime runtime or generated custom Volt Frontend Runtime artifacts.
+
 ---
 
 4. Status of VBL and LLVM
@@ -308,7 +326,8 @@ ABI                  Microsoft x64
 Object format        PE/COFF
 Executable format    PE32+
 Libraries            DLL / static library
-Frontend             ANTLR
+Frontend runtime     Volt Frontend Runtime
+Grammar authority    EBNF + CFG oracle
 Semantic frontend    Volt Semantic Lattice
 Native IR            AIR
 Virtual assembly     AVA
@@ -377,13 +396,26 @@ Volt is:
 
 ---
 
-7. Deterministic Grammar
+7. Deterministic Grammar, EBNF + CFG Oracle and Volt Frontend Runtime
 
 The language surface is reader-facing.
 
-The parser is not.
+The frontend machinery is deterministic.
 
-ANTLR receives deterministic grammar built around a small collection of structural anchors:
+Volt uses a custom Volt Frontend Runtime with no required third-party parser-generator runtime.
+
+The authoritative syntax baseline is maintained in two mutually checked forms:
+
+EBNF
+CFG
+
+The EBNF and CFG definitions together form the grammar oracle. They are the normative reference for lexical structure, phrase structure, precedence boundaries, ambiguity resolution and parser conformance.
+
+The executable Volt lexer and parser are custom implementations. They must conform to the EBNF + CFG oracle rather than becoming an independent source of language truth.
+
+When an implementation detail disagrees with the oracle, the oracle wins.
+
+The custom Volt Frontend Runtime is built around a small collection of structural anchors:
 
 NEWLINE
 INDENT
@@ -404,9 +436,13 @@ Ordinary blocks require no braces.
 Statements require no semicolons.
 
 if ready
-    send(packet)
+     send(packet)
 
-The lexer produces structural indentation tokens.
+Indentation is structural. A tab character canonicalizes to exactly five spaces before indentation depth is interpreted. Formatters, parsers, source maps and language tooling use the same five-space tab expansion rule.
+
+The Volt lexer produces structural indentation tokens after tab normalization.
+
+The parser consumes those tokens according to the authoritative EBNF + CFG grammar oracle and emits the Concrete Syntax Graph.
 
 This permits a sentence-like surface while preserving reliable:
 
@@ -417,6 +453,8 @@ refactoring
 static analysis
 language-server behavior
 source mapping
+grammar conformance testing
+parser differential testing
 
 ---
 
@@ -2190,9 +2228,19 @@ Optimization failure is not program failure.
 
 A certified Volt build traverses:
 
+source normalization
+        ↓
+five-space tab canonicalization
+        ↓
 lexical validation
         ↓
-grammar validation
+EBNF conformance validation
+        ↓
+CFG conformance validation
+        ↓
+EBNF + CFG oracle agreement
+        ↓
+Volt parser validation
         ↓
 Volt name/type resolution
         ↓
@@ -2232,7 +2280,11 @@ It does not mean an application has no design flaws.
 
 69. Runtime Model
 
-Volt's ordinary language runtime remains extremely thin.
+Volt distinguishes the compiler-hosted Volt Frontend Runtime from the runtime support linked into compiled Volt programs.
+
+The Volt Frontend Runtime is a compiler component used to normalize, lex, parse and validate ".vt1" source against the EBNF + CFG oracle. It is not shipped as a mandatory execution layer inside ordinary Volt binaries.
+
+Volt's ordinary program runtime remains extremely thin.
 
 There is no mandatory:
 
@@ -2370,7 +2422,8 @@ Volt therefore provides both rigorous default semantics and unrestricted systems
 
 Volt and AIR protect compilation integrity through:
 
-validated parsers
+custom Volt lexer/parser validation
+EBNF + CFG oracle conformance
 resource budgets
 schema validation
 integer-overflow-safe compiler infrastructure
@@ -2426,6 +2479,8 @@ volt format
 
 volt inspect
 volt explain
+volt grammar
+volt parse
 
 volt air
 volt ava
@@ -2437,6 +2492,10 @@ volt bench
 volt doc
 volt package
 volt verify
+
+"volt grammar" validates and reports the active authoritative EBNF + CFG grammar oracle.
+
+"volt parse" displays normalized tokens and the Concrete Syntax Graph produced by the custom Volt Frontend Runtime.
 
 "volt air" displays semantic AIR.
 
@@ -2529,6 +2588,9 @@ Build identity includes:
 
 source content
 Volt language version
+EBNF grammar version
+CFG grammar version
+Volt Frontend Runtime version
 AIR version
 AVA version
 compiler build
@@ -3121,7 +3183,10 @@ Templates| Structural specialization/generation
 Metaprogramming| Compile-time semantic execution
 Modules| Native
 FFI| First-class
-Frontend parser| ANTLR
+Frontend runtime| Custom Volt Frontend Runtime
+Frontend lexer/parser| Custom Volt lexer + deterministic parser
+Grammar authority| EBNF + CFG oracle
+Tab canonicalization| 1 tab = 5 spaces
 Source semantic representation| Volt Semantic Lattice
 Native semantic IR| AIR
 AIR semantic nodes| Nibblets
@@ -3142,7 +3207,7 @@ Mandatory VM| None
 Mandatory GC| None
 Mandatory exception runtime| None
 Mandatory external compiler backend| None
-Runtime| Thin and feature-dependent
+Program runtime| Thin and feature-dependent
 Optimization posture| Aggressive but contract-preserving
 Core objective| Maximum semantic density with minimum machine tax
 
@@ -3275,7 +3340,7 @@ Volt is a statically typed, ahead-of-time compiled, native reasoning-centered ge
 
 Its ".vt1" surface is shorthand-oriented, sentence-like, diagrammatic, equation-friendly, indentation-aware and intentionally sparse.
 
-Its ANTLR frontend converts deterministic syntax into the Volt Semantic Lattice.
+Its custom Volt Frontend Runtime tokenizes and parses deterministic syntax against the authoritative EBNF + CFG grammar oracle, produces the Concrete Syntax Graph, and feeds Volt semantic resolution into the Volt Semantic Lattice.
 
 That lattice captures the program's meaning:
 
